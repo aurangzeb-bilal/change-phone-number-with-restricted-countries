@@ -322,11 +322,17 @@ public class PhonenumberUpdate extends UserphoneUpdate {
 
             String publicKey = conf.get("PUBLIC_KEY");
             String privateKey = conf.get("PRIVATE_KEY");
+            String apiBaseUrl = conf.get("API_BASE_URL");
 
             if (publicKey == null || privateKey == null) {
                 result.put("status", "error");
                 result.put("message", "PUBLIC_KEY or PRIVATE_KEY missing in config");
                 return result;
+            }
+            
+            // Use default API URL if not configured
+            if (apiBaseUrl == null || apiBaseUrl.trim().isEmpty()) {
+                apiBaseUrl = "https://api.phiwallet.dev";
             }
 
             // Generate HMAC-SHA256 signature (hex lowercase)
@@ -353,7 +359,7 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             }
 
             // Build webhook URL
-            String url = String.format("https://api.phiwallet.dev/v1/webhooks/users/%s/sync", inum);
+            String url = String.format("%s/v1/webhooks/users/%s/sync", apiBaseUrl, inum);
 
             // HTTP request
             HttpClient client = HttpClient.newHttpClient();
@@ -533,8 +539,6 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             String defaultFromNumber = flowConfig.get("FROM_NUMBER");
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
             
-            logger.info("DEBUG: phone={}, FROM_NUMBER={}, RESTRICTED_CODES={}", phone, defaultFromNumber, restrictedCodes);
-            
             if (defaultFromNumber == null || defaultFromNumber.trim().isEmpty()) {
                 logger.error("FROM_NUMBER not configured");
                 return null;
@@ -542,7 +546,6 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             
             // Early return if no restricted codes configured
             if (restrictedCodes == null || restrictedCodes.trim().isEmpty()) {
-                logger.info("No restricted country codes configured, using default FROM_NUMBER: {}", defaultFromNumber);
                 return defaultFromNumber;
             }
 
@@ -552,34 +555,23 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toSet());
             
-            logger.info("DEBUG: restrictedSet={}", restrictedSet);
-            
             // Extract country code from phone number
             String countryCode = extractCountryCode(phone, restrictedSet);
-            logger.info("DEBUG: extracted countryCode={}", countryCode);
             
             if (countryCode == null || countryCode.isEmpty()) {
-                logger.info("No country code extracted, using default: {}", defaultFromNumber);
                 return defaultFromNumber;
             }
 
             // Check if country code is in restricted list
-            boolean isRestricted = restrictedSet.contains(countryCode);
-            logger.info("DEBUG: countryCode '{}' in restricted list? {}", countryCode, isRestricted);
-            
-            if (isRestricted) {
+            if (restrictedSet.contains(countryCode)) {
                 String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
-                logger.info("DEBUG: FROM_NUMBER_RESTRICTED_COUNTRIES={}", restrictedFromNumber);
                 
                 if (restrictedFromNumber != null && !restrictedFromNumber.trim().isEmpty()) {
                     logger.info("Using restricted sender {} for country code {}", restrictedFromNumber, countryCode);
                     return restrictedFromNumber;
-                } else {
-                    logger.warn("FROM_NUMBER_RESTRICTED_COUNTRIES is null/empty, falling back to default");
                 }
             }
 
-            logger.info("Using default sender: {}", defaultFromNumber);
             return defaultFromNumber;
         } catch (Exception ex) {
             logger.error("Error in getFromNumberForPhone: {}", ex.getMessage(), ex);
