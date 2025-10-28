@@ -1,0 +1,110 @@
+Flow org.gluu.agama.change.phonenumber
+     Basepath ""
+     Timeout 900 seconds
+     Configs conf
+//  Create  variable for UI feedback
+uiFeedback = {}
+uiFeedback.errorMessage = ""
+//  Iterate x times max
+Repeat 6 times max
+     //  Retrieve user profile  from UI
+     searchUserInput = RRF "searchUser.ftlh" uiFeedback
+     // When searchUserForm is submitted
+     When searchUserInput.formType is "searchUserForm"
+          // Validate access token first
+          accessToken = searchUserInput.access_token
+          // accessToken
+          Log "@info Validating access token: %" accessToken
+          // Create an instance of Update service
+          PhonenumberUpdateService = Call org.gluu.agama.change.users.UserphoneUpdate#getInstance conf
+          // Validate the bearer token
+          authCheck = Call org.gluu.agama.change.smschange.PhonenumberUpdate#validateBearerToken accessToken
+          // Check if token validation failed
+          When authCheck.valid is false
+               // CHANGED: Instead of Finish, set error message and continue loop
+               uiFeedback.errorMessage = authCheck.errorMessage
+          Otherwise
+               // Token is valid, proceed with user search
+               Log "@info Token validation successful for user: %" authCheck.username
+               // Assign username to a variable
+               username = searchUserInput.uid
+               // get user by username
+               userWithUid = Call PhonenumberUpdateService getUserEntityByUsername username
+               // when user with provided username not found
+               When userWithUid.empty is true
+                    // show error
+                    uiFeedback.errorMessage = "User not registered with this UserName"
+               Otherwise
+                    Log "@info Input Phone number page "
+                    ValidMobileNum = Repeat 10 times max
+                         // Display update user page
+                         phoneInput = RRF "InputMobileNumber.ftlh" uiFeedback
+                         phone = phoneInput.phoneNumber
+                         // "Check phone number for user +++++++:" phone
+                         Log "@info Check phone number for user +++++++:" phone
+                         UniqueNumber = Call PhonenumberUpdateService isPhoneUnique username phone
+                         When UniqueNumber is true
+                              // sent sms otp
+                              smsOtpSend = Call PhonenumberUpdateService sendOTPCode username phone
+                              // The OTP Code has been send to user.
+                              Log "@info OTP generated and send to: " phone
+                              // Trigger OTP subflow
+                              otpFeedBack = Trigger org.gluu.agama.change.smsotp PhonenumberUpdateService username phone
+                              // OTP Code validation is completed.
+                              Log "@info OTP Code validation completed with status: " otpFeedBack
+                              // Check if OTP validation vas okay
+                              When otpFeedBack.success is true
+                                   PhonenumberUpdated = Call PhonenumberUpdateService markPhoneAsVerified username phone
+                                   // "Phone Number updated in user profile"
+                                   uiFeedback.infoMessage = "Phone Number updated in user profile"
+                                   inum | E = Call PhonenumberUpdateService getUserInumByUsername username
+                                   //  Show user updation log
+                                   Log "@info get the user inum from username" inum
+                                   //  If user update success
+                                   When inum is not null
+                                        // UserAPiCall method
+                                        UserServiceAPiCall = Call org.gluu.agama.change.smschange.PhonenumberUpdate#syncUserWithExternal inum conf
+                                        // "User update api called"
+                                        Log "@info User update api called"
+                                        Log "@info External user sync called: %" UserServiceAPiCall.message
+                                        Log "@info Finish the flow successfully"
+                                        RRF "acknowledgement.ftlh" 
+                                        Finish username
+                                   Otherwise
+                                        Log "@info User update failed. Error : %" E
+                                        uiFeedback.errorMessage = "User update failed"
+                              Otherwise
+                                   // "ExceededResendAttempts"
+                                   When otpFeedBack.error is "ExceededResendAttempts"
+                                        Log "@info Resend attempts exceeded in OTP flow"
+                                        Finish otpFeedBack
+                                   // Check if OTP attempts exceeded
+                                   When otpFeedBack.error is "ExceededTheNumberOfAttemptsAllowed"
+                                        Log "@info OTP validation attempts exceeded"
+                                        Finish otpFeedBack
+                                   uiFeedback.errorMessage = "Please try again with a different mobile number."
+                         Otherwise
+                              // "This phone is already used by another account. Please enter a different one."
+                              Log "@info This phone is already used by another account. Please enter a different one."
+                              uiFeedback.errorMessage = "This phone is already used by another account. Please enter a different one."
+                              uiFeedback.infoMessage = "Please enter a new number"
+                              max = Repeat 4 times max
+                                   otpCred = RRF "smsOtp.ftlh" uiFeedback
+                                   //  Validate the OTP code provided by the user.
+                                   otpValidationResults = Call PhonenumberUpdateService validateOTPCode phone otpCred.code
+                                   When otpValidationResults is true
+                                        uiFeedback.infoMessage = "Invalid code provided."
+                                   Otherwise
+                                        uiFeedback.errorMessage = "Invalid code provided."
+                              it_ootpmax = { success: false, error: "ExceededTheNumberOfAttemptsAllowed" }
+                              Finish it_ootpmax
+                    // "Phone loop completed"
+                    Log "@info Phone loop completed"
+                    // { success: false, error: "ExceededTheNumberOfAttemptsAllowed" }
+                    it_ValidMobileNum = { success: false, error: "ExceededTheNumberOfAttemptsAllowed" }
+                    Finish it_ValidMobileNum
+//  Maximum attempt reached
+Log "@info Maximum attempt reached"
+//  User Registration flow failed
+it_zxfhb = {success:false, error: "User update flow reached max attempts try later"}
+Finish it_zxfhb

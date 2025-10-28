@@ -1,0 +1,30 @@
+{
+    "projectName": "change-user-phonenumber",
+    "description": "update the user phone number flow",
+    "type": "community",
+    "author": "Phiwallet",
+    "version": "0.0.1",
+    "authorWebsite": "https://github.com/AutomateCentroxy/agama-change-phonenumber-09-oct-25",
+    "githubUri": "https://github.com/AutomateCentroxy/agama-change-phonenumber-09-oct-25",
+    "license": "apache-2.0",
+    "lastUpdated": "1759992696340",
+    "tags": [
+        "authentication",
+        "authorization",
+        "jans"
+    ],
+    "noDirectLaunch": [],
+    "configs": {
+        "org.gluu.agama.change.phonenumber": {
+            "PRIVATE_KEY": "your_private_key_here",
+            "PUBLIC_KEY": "your_public_key_here",
+            "ACCOUNT_SID": "PUT_YOUR_TWILIO_ACCOUNT_SID_HERE",
+            "AUTH_TOKEN": "PUT_YOUR_TWILIO_AUTH_TOKEN_HERE",
+            "FROM_NUMBER": "PUT_YOUR_TWILIO_FROM_NUMBER_HERE",
+            "FROM_NUMBER_RESTRICTED_COUNTRIES": "PUT_YOUR_ALTERNATIVE_TWILIO_FROM_NUMBER_HERE",
+            "RESTRICTED_COUNTRY_CODES": "1,44,91"
+        },
+        "org.gluu.agama.change.smsotp": {}
+    },
+    "name": "change-user-phonenumber"
+}
