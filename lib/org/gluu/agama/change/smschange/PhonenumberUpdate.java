@@ -10,24 +10,18 @@ import io.jans.util.StringHelper;
 
 import org.gluu.agama.change.users.UserphoneUpdate;
 import io.jans.agama.engine.script.LogUtils;
-import java.io.IOException;
-import io.jans.as.common.service.common.ConfigurationService;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.regex.Pattern;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.jans.agama.engine.script.LogUtils;
 
 import io.jans.as.server.service.token.TokenService;
 import io.jans.as.server.model.common.AuthorizationGrant;
@@ -531,12 +525,13 @@ public class PhonenumberUpdate extends UserphoneUpdate {
 
     /**
      * Determines which FROM_NUMBER to use based on the phone number's country code.
-     * Returns the restricted countries FROM_NUMBER if the country code is in the restricted list,
-     * otherwise returns the default FROM_NUMBER.
+     * Priority: 1) Countries in US_COUNTRY_CODES use FROM_NUMBER_US, 2) Countries in RESTRICTED_COUNTRY_CODES use FROM_NUMBER_RESTRICTED_COUNTRIES,
+     * 3) All others use default FROM_NUMBER.
      */
     private String getFromNumberForPhone(String phone) {
         try {
             String defaultFromNumber = flowConfig.get("FROM_NUMBER");
+            String usCountryCodes = flowConfig.get("US_COUNTRY_CODES");
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
             
             if (defaultFromNumber == null || defaultFromNumber.trim().isEmpty()) {
@@ -544,16 +539,23 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                 return null;
             }
             
-            // Early return if no restricted codes configured
-            if (restrictedCodes == null || restrictedCodes.trim().isEmpty()) {
-                return defaultFromNumber;
+            // Parse US country codes for matching
+            Set<String> usCountrySet = new HashSet<>();
+            if (usCountryCodes != null && !usCountryCodes.trim().isEmpty()) {
+                usCountrySet = Arrays.stream(usCountryCodes.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet());
             }
-
+            
             // Parse restricted country codes for matching
-            Set<String> restrictedSet = Arrays.stream(restrictedCodes.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet());
+            Set<String> restrictedSet = new HashSet<>();
+            if (restrictedCodes != null && !restrictedCodes.trim().isEmpty()) {
+                restrictedSet = Arrays.stream(restrictedCodes.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet());
+            }
             
             // Extract country code from phone number
             String countryCode = extractCountryCode(phone, restrictedSet);
@@ -562,7 +564,17 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                 return defaultFromNumber;
             }
 
-            // Check if country code is in restricted list
+            // Priority 1: Check if country code is in US_COUNTRY_CODES - use US-specific sender
+            if (usCountrySet.contains(countryCode)) {
+                String usFromNumber = flowConfig.get("FROM_NUMBER_US");
+                
+                if (usFromNumber != null && !usFromNumber.trim().isEmpty()) {
+                    logger.info("Using US-specific sender {} for country code {}", usFromNumber, countryCode);
+                    return usFromNumber;
+                }
+            }
+
+            // Priority 2: Check if country code is in restricted list
             if (restrictedSet.contains(countryCode)) {
                 String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
                 
