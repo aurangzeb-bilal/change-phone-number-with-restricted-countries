@@ -68,11 +68,13 @@ public class PhonenumberUpdate extends UserphoneUpdate {
     }
 
     public static synchronized PhonenumberUpdate getInstance(Map<String, String> config) {
+        logger.info("getInstance called with config keys: {}", config != null ? config.keySet() : "null");
         if (INSTANCE == null) {
             INSTANCE = new PhonenumberUpdate();
         }
         // Always update flowConfig to ensure latest config is used
         INSTANCE.flowConfig = config;
+        logger.info("flowConfig set with keys: {}", INSTANCE.flowConfig != null ? INSTANCE.flowConfig.keySet() : "null");
         return INSTANCE;
     }
 
@@ -502,7 +504,6 @@ public class PhonenumberUpdate extends UserphoneUpdate {
 
             // Determine which FROM_NUMBER to use based on country code
             String fromNumber = getFromNumberForPhone(phone);
-            logger.info("Selected FROM_NUMBER: '{}' for phone: {}", fromNumber, phone);
             
             if (fromNumber == null || fromNumber.trim().isEmpty()) {
                 logger.error("FROM_NUMBER is null or empty, cannot send OTP to {}", phone);
@@ -516,7 +517,7 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             Twilio.init(flowConfig.get("ACCOUNT_SID"), flowConfig.get("AUTH_TOKEN"));
             Message.creator(TO_NUMBER, FROM_NUMBER, message).create();
 
-            logger.info("OTP {} sent successfully to {} using sender: {}", otpCode, phone, fromNumber);
+            logger.info("OTP sent to {} using sender {}", phone, fromNumber);
             return true;
         } catch (Exception ex) {
             logger.error("Failed to send OTP to {}. Error: {}", phone, ex.getMessage(), ex);
@@ -530,14 +531,18 @@ public class PhonenumberUpdate extends UserphoneUpdate {
      * otherwise returns the default FROM_NUMBER.
      */
     private String getFromNumberForPhone(String phone) {
+        // SIMPLE TEST: If phone contains +32, force restricted sender
+        if (phone != null && phone.contains("+32")) {
+            String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
+            logger.info("TEST: Phone contains +32, returning restricted sender: {}", restrictedFromNumber);
+            return restrictedFromNumber != null ? restrictedFromNumber : flowConfig.get("FROM_NUMBER");
+        }
+        
         try {
-            logger.info("=== getFromNumberForPhone called with phone: '{}' ===", phone);
-            
             String defaultFromNumber = flowConfig.get("FROM_NUMBER");
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
             
-            logger.info("FROM_NUMBER from config: '{}'", defaultFromNumber);
-            logger.info("RESTRICTED_COUNTRY_CODES from config: '{}'", restrictedCodes);
+            logger.info("DEBUG: phone={}, FROM_NUMBER={}, RESTRICTED_CODES={}", phone, defaultFromNumber, restrictedCodes);
             
             if (defaultFromNumber == null || defaultFromNumber.trim().isEmpty()) {
                 logger.error("FROM_NUMBER not configured");
@@ -556,32 +561,34 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toSet());
             
-            // Extract country code by trying to match against restricted list
+            logger.info("DEBUG: restrictedSet={}", restrictedSet);
+            
+            // Extract country code from phone number
             String countryCode = extractCountryCode(phone, restrictedSet);
-            logger.info("Extracted country code: '{}' from phone: {}", countryCode, phone);
+            logger.info("DEBUG: extracted countryCode={}", countryCode);
             
             if (countryCode == null || countryCode.isEmpty()) {
-                logger.info("Could not extract country code, using default FROM_NUMBER: {}", defaultFromNumber);
+                logger.info("No country code extracted, using default: {}", defaultFromNumber);
                 return defaultFromNumber;
             }
 
-            logger.info("Restricted country codes configured: {}", restrictedSet);
-
-            if (restrictedSet.contains(countryCode)) {
+            // Check if country code is in restricted list
+            boolean isRestricted = restrictedSet.contains(countryCode);
+            logger.info("DEBUG: countryCode '{}' in restricted list? {}", countryCode, isRestricted);
+            
+            if (isRestricted) {
                 String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
-                logger.info("Country code '{}' MATCHES restricted list! FROM_NUMBER_RESTRICTED_COUNTRIES value: '{}'", countryCode, restrictedFromNumber);
+                logger.info("DEBUG: FROM_NUMBER_RESTRICTED_COUNTRIES={}", restrictedFromNumber);
                 
                 if (restrictedFromNumber != null && !restrictedFromNumber.trim().isEmpty()) {
-                    logger.info("RETURNING restricted sender: {}", restrictedFromNumber);
+                    logger.info("Using restricted sender {} for country code {}", restrictedFromNumber, countryCode);
                     return restrictedFromNumber;
                 } else {
-                    logger.warn("Country code '{}' is restricted but FROM_NUMBER_RESTRICTED_COUNTRIES is null/empty, using default", countryCode);
+                    logger.warn("FROM_NUMBER_RESTRICTED_COUNTRIES is null/empty, falling back to default");
                 }
-            } else {
-                logger.info("Country code '{}' NOT in restricted list, using default: {}", countryCode, defaultFromNumber);
             }
 
-            logger.info("RETURNING default sender: {}", defaultFromNumber);
+            logger.info("Using default sender: {}", defaultFromNumber);
             return defaultFromNumber;
         } catch (Exception ex) {
             logger.error("Error in getFromNumberForPhone: {}", ex.getMessage(), ex);
@@ -594,44 +601,31 @@ public class PhonenumberUpdate extends UserphoneUpdate {
      * Returns 1-digit code "1" or 2-3 digit country code.
      */
     private String extractCountryCode(String phone, Set<String> knownCodes) {
-        logger.info("extractCountryCode: input phone='{}', knownCodes={}", phone, knownCodes);
         
         if (phone == null || phone.trim().isEmpty()) {
             return null;
         }
 
         String cleaned = phone.startsWith("+") ? phone.substring(1) : phone;
-        logger.info("After removing +: cleaned='{}'", cleaned);
-        
         if (cleaned.length() < 2) {
             return null;
         }
 
         // Handle code "1" first (US/Canada and territories)
         if (cleaned.startsWith("1") && cleaned.length() > 1 && Character.isDigit(cleaned.charAt(1))) {
-            logger.info("Detected country code '1'");
             return "1";
         }
         
-        // Try 3-digit codes if we have more than 3 digits
-        if (cleaned.length() >= 3) {
+        // Try 3-digit codes ONLY if they're in our knownCodes list
+        if (cleaned.length() >= 3 && knownCodes != null && !knownCodes.isEmpty()) {
             String threeDigit = cleaned.substring(0, 3);
-            logger.info("Testing 3-digit code: '{}'", threeDigit);
-            if (threeDigit.matches("\\d{3}")) {
-                // Only return if it's in the known codes list
-                if (knownCodes != null && !knownCodes.isEmpty() && knownCodes.contains(threeDigit)) {
-                    logger.info("Match! 3-digit code '{}' is in known codes", threeDigit);
-                    return threeDigit;
-                } else {
-                    logger.info("3-digit code '{}' not in known codes, continuing...", threeDigit);
-                }
+            if (knownCodes.contains(threeDigit)) {
+                return threeDigit;
             }
         }
         
-        // Extract 2-digit country code
-        String twoDigit = cleaned.substring(0, 2);
-        logger.info("Extracting 2-digit code: '{}'", twoDigit);
-        return twoDigit;
+        // Default: Extract 2-digit country code
+        return cleaned.substring(0, 2);
     }
 
     public boolean validateOTPCode(String phone, String code) {
