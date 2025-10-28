@@ -68,13 +68,11 @@ public class PhonenumberUpdate extends UserphoneUpdate {
     }
 
     public static synchronized PhonenumberUpdate getInstance(Map<String, String> config) {
-        logger.info("getInstance called with config keys: {}", config != null ? config.keySet() : "null");
         if (INSTANCE == null) {
             INSTANCE = new PhonenumberUpdate();
         }
         // Always update flowConfig to ensure latest config is used
         INSTANCE.flowConfig = config;
-        logger.info("flowConfig set with keys: {}", INSTANCE.flowConfig != null ? INSTANCE.flowConfig.keySet() : "null");
         return INSTANCE;
     }
 
@@ -531,13 +529,6 @@ public class PhonenumberUpdate extends UserphoneUpdate {
      * otherwise returns the default FROM_NUMBER.
      */
     private String getFromNumberForPhone(String phone) {
-        // SIMPLE TEST: If phone contains +32, force restricted sender
-        if (phone != null && phone.contains("+32")) {
-            String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
-            logger.info("TEST: Phone contains +32, returning restricted sender: {}", restrictedFromNumber);
-            return restrictedFromNumber != null ? restrictedFromNumber : flowConfig.get("FROM_NUMBER");
-        }
-        
         try {
             String defaultFromNumber = flowConfig.get("FROM_NUMBER");
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
