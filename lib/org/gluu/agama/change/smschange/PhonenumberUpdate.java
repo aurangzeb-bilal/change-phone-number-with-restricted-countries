@@ -537,26 +537,37 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             // Early return if no restricted codes configured
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
             if (restrictedCodes == null || restrictedCodes.trim().isEmpty()) {
+                logger.info("No restricted country codes configured, using default FROM_NUMBER: {}", defaultFromNumber);
                 return defaultFromNumber;
             }
 
-            // Extract and validate country code
-            String countryCode = extractCountryCode(phone);
-            if (countryCode == null || countryCode.isEmpty()) {
-                return defaultFromNumber;
-            }
-
-            // Check if country code is restricted
+            // Parse restricted country codes for matching
             Set<String> restrictedSet = Arrays.stream(restrictedCodes.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toSet());
+            
+            // Extract country code by trying to match against restricted list
+            String countryCode = extractCountryCode(phone, restrictedSet);
+            logger.info("Extracted country code: '{}' from phone: {}", countryCode, phone);
+            
+            if (countryCode == null || countryCode.isEmpty()) {
+                logger.info("Could not extract country code, using default FROM_NUMBER: {}", defaultFromNumber);
+                return defaultFromNumber;
+            }
+
+            logger.info("Restricted country codes configured: {}", restrictedSet);
 
             if (restrictedSet.contains(countryCode)) {
                 String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
                 if (restrictedFromNumber != null && !restrictedFromNumber.trim().isEmpty()) {
+                    logger.info("Country code '{}' is in restricted list, using FROM_NUMBER_RESTRICTED_COUNTRIES: {}", countryCode, restrictedFromNumber);
                     return restrictedFromNumber;
+                } else {
+                    logger.warn("Country code '{}' is restricted but FROM_NUMBER_RESTRICTED_COUNTRIES not configured, using default", countryCode);
                 }
+            } else {
+                logger.info("Country code '{}' is NOT in restricted list, using default FROM_NUMBER: {}", countryCode, defaultFromNumber);
             }
 
             return defaultFromNumber;
@@ -567,36 +578,39 @@ public class PhonenumberUpdate extends UserphoneUpdate {
     }
 
     /**
-     * Extracts the country code from a phone number in E.164 format.
-     * Supports common country codes (1-3 digits).
+     * Extract country code from phone number by matching against known codes.
+     * Returns 1-digit code "1" or 2-3 digit country code.
      */
-    private String extractCountryCode(String phone) {
+    private String extractCountryCode(String phone, Set<String> knownCodes) {
         if (phone == null || phone.trim().isEmpty()) {
             return null;
         }
 
         String cleaned = phone.startsWith("+") ? phone.substring(1) : phone;
-        
         if (cleaned.length() < 2) {
             return null;
         }
 
-        // Try to extract country code (1-3 digits), starting with longest possible
-        for (int len = 3; len >= 1; len--) {
-            if (cleaned.length() >= len) {
-                String code = cleaned.substring(0, len);
-                // Validate: numeric and in reasonable range (1-999)
-                if (code.matches("\\d+")) {
-                    try {
-                        int num = Integer.parseInt(code);
-                        if (num >= 1 && num <= 999) {
-                            return code;
-                        }
-                    } catch (NumberFormatException e) {
-                        // Continue searching
-                    }
+        // Handle code "1" first (US/Canada and territories)
+        if (cleaned.startsWith("1") && cleaned.length() > 1 && Character.isDigit(cleaned.charAt(1))) {
+            return "1";
+        }
+        
+        // Try 3-digit codes if we have more than 3 digits
+        if (cleaned.length() >= 3) {
+            String threeDigit = cleaned.substring(0, 3);
+            if (threeDigit.matches("\\d{3}")) {
+                // Only return if it's in the known codes list
+                if (knownCodes != null && !knownCodes.isEmpty() && knownCodes.contains(threeDigit)) {
+                    return threeDigit;
                 }
             }
+        }
+        
+        // Extract 2-digit country code
+        String twoDigit = cleaned.substring(0, 2);
+        if (twoDigit.matches("\\d{2}")) {
+            return twoDigit;
         }
         
         return null;
