@@ -127,14 +127,14 @@ public class PhonenumberUpdate extends UserphoneUpdate {
     // validate token ends here
 
     public boolean passwordPolicyMatch(String userPassword) {
-        String regex = "^(?=.*[!@#$^&*])[A-Za-z0-9!@#$^&*]{6,}$";
+        String regex = '''^(?=.*[!@#$^&*])[A-Za-z0-9!@#$^&*]{6,}$''';
         Pattern pattern = Pattern.compile(regex);
         return pattern.matcher(userPassword).matches();
     }
 
     public boolean usernamePolicyMatch(String userName) {
         // Regex: Only alphabets (uppercase and lowercase), minimum 1 character
-        String regex = "^[A-Za-z]+$";
+        String regex = '''^[A-Za-z]+$''';
         Pattern pattern = Pattern.compile(regex);
         return pattern.matcher(userName).matches();
     }
