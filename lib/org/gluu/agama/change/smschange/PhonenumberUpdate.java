@@ -127,14 +127,14 @@ public class PhonenumberUpdate extends UserphoneUpdate {
     // validate token ends here
 
     public boolean passwordPolicyMatch(String userPassword) {
-        String regex = '''^(?=.*[!@#$^&*])[A-Za-z0-9!@#$^&*]{6,}$'''
+        String regex = "^(?=.*[!@#$^&*])[A-Za-z0-9!@#$^&*]{6,}$";
         Pattern pattern = Pattern.compile(regex);
         return pattern.matcher(userPassword).matches();
     }
 
     public boolean usernamePolicyMatch(String userName) {
         // Regex: Only alphabets (uppercase and lowercase), minimum 1 character
-        String regex = '''^[A-Za-z]+$''';
+        String regex = "^[A-Za-z]+$";
         Pattern pattern = Pattern.compile(regex);
         return pattern.matcher(userName).matches();
     }
@@ -525,11 +525,13 @@ public class PhonenumberUpdate extends UserphoneUpdate {
 
     /**
      * Determines which FROM_NUMBER to use based on the phone number's country code.
-     * Priority: 1) Countries in US_COUNTRY_CODES use FROM_NUMBER_US, 2) Countries in RESTRICTED_COUNTRY_CODES use FROM_NUMBER_RESTRICTED_COUNTRIES,
-     * 3) All others use default FROM_NUMBER.
+     * Priority: 1) Countries in US_COUNTRY_CODES use FROM_NUMBER_US, 
+     *          2) Countries in RESTRICTED_COUNTRY_CODES use FROM_NUMBER_RESTRICTED_COUNTRIES,
+     *          3) All others use default FROM_NUMBER.
      */
     private String getFromNumberForPhone(String phone) {
         try {
+            logger.info("=== getFromNumberForPhone START: phone='{}' ===", phone);
             String defaultFromNumber = flowConfig.get("FROM_NUMBER");
             String usCountryCodes = flowConfig.get("US_COUNTRY_CODES");
             String restrictedCodes = flowConfig.get("RESTRICTED_COUNTRY_CODES");
@@ -547,6 +549,7 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                         .filter(s -> !s.isEmpty())
                         .collect(Collectors.toSet());
             }
+            logger.info("US_COUNTRY_CODES from config: '{}' -> parsed to: {}", usCountryCodes, usCountrySet);
             
             // Parse restricted country codes for matching
             Set<String> restrictedSet = new HashSet<>();
@@ -557,16 +560,26 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                         .collect(Collectors.toSet());
             }
             
+            // Combine both sets for accurate country code extraction
+            Set<String> allKnownCodes = new HashSet<>();
+            allKnownCodes.addAll(usCountrySet);
+            allKnownCodes.addAll(restrictedSet);
+            
             // Extract country code from phone number
-            String countryCode = extractCountryCode(phone, restrictedSet);
+            String countryCode = extractCountryCode(phone, allKnownCodes);
+            logger.info("Phone: '{}' -> Extracted country code: '{}'", phone, countryCode);
             
             if (countryCode == null || countryCode.isEmpty()) {
+                logger.info("No country code extracted, using default sender");
                 return defaultFromNumber;
             }
 
             // Priority 1: Check if country code is in US_COUNTRY_CODES - use US-specific sender
+            logger.info("Checking if country code '{}' is in US_COUNTRY_CODES: {}", countryCode, usCountrySet);
+            logger.info("usCountrySet.size(): {}, usCountrySet.contains('{}'): {}", usCountrySet.size(), countryCode, usCountrySet.contains(countryCode));
             if (usCountrySet.contains(countryCode)) {
                 String usFromNumber = flowConfig.get("FROM_NUMBER_US");
+                logger.info("Retrieved FROM_NUMBER_US from config: '{}'", usFromNumber);
                 
                 if (usFromNumber != null && !usFromNumber.trim().isEmpty()) {
                     logger.info("Using US-specific sender {} for country code {}", usFromNumber, countryCode);
@@ -575,6 +588,7 @@ public class PhonenumberUpdate extends UserphoneUpdate {
             }
 
             // Priority 2: Check if country code is in restricted list
+            logger.info("Checking if country code '{}' is in restricted list: {}", countryCode, restrictedSet);
             if (restrictedSet.contains(countryCode)) {
                 String restrictedFromNumber = flowConfig.get("FROM_NUMBER_RESTRICTED_COUNTRIES");
                 
@@ -584,6 +598,7 @@ public class PhonenumberUpdate extends UserphoneUpdate {
                 }
             }
 
+            logger.info("No matching category found, returning default sender: {}", defaultFromNumber);
             return defaultFromNumber;
         } catch (Exception ex) {
             logger.error("Error in getFromNumberForPhone: {}", ex.getMessage(), ex);
@@ -596,18 +611,26 @@ public class PhonenumberUpdate extends UserphoneUpdate {
      * Returns 1-digit code "1" or 2-3 digit country code.
      */
     private String extractCountryCode(String phone, Set<String> knownCodes) {
+        logger.info("extractCountryCode: input phone='{}'", phone);
         
         if (phone == null || phone.trim().isEmpty()) {
             return null;
         }
 
         String cleaned = phone.startsWith("+") ? phone.substring(1) : phone;
+        logger.info("extractCountryCode: after removing +, cleaned='{}'", cleaned);
+        
         if (cleaned.length() < 2) {
             return null;
         }
 
         // Handle code "1" first (US/Canada and territories)
+        boolean isDigit = cleaned.length() > 1 && Character.isDigit(cleaned.charAt(1));
+        logger.info("extractCountryCode: startsWith('1')? {}, length > 1? {}, charAt(1) is digit? {}", 
+                    cleaned.startsWith("1"), cleaned.length() > 1, isDigit);
+        
         if (cleaned.startsWith("1") && cleaned.length() > 1 && Character.isDigit(cleaned.charAt(1))) {
+            logger.info("extractCountryCode: returning '1'");
             return "1";
         }
         
